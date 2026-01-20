@@ -18,10 +18,15 @@ module.exports = (io, socket) => {
             });
 
             socket.join(roomId);
-            socket.emit("room_created", { roomId });
-            // Emit participants update so the creator sees themselves as a participant
-            io.to(roomId).emit("participants_update", { users: [socket.username], admin: socket.username });
-            // Send initial messages to the creator
+            // Send room_created with initial data so the creator immediately sees participants
+            socket.emit("room_created", { 
+                roomId,
+                users: newRoom.participants,
+                admin: socket.username,
+                messages: newRoom.messages
+            });
+            // Also broadcast to ensure socket listeners are set up
+            io.to(roomId).emit("participants_update", { users: newRoom.participants, admin: socket.username });
             io.to(roomId).emit("load_messages", { messages: newRoom.messages });
         } catch (err) {
             console.log(err);
@@ -47,10 +52,11 @@ module.exports = (io, socket) => {
                 socket.join(roomId);
                 console.log(`${socket.username} joined room ${roomId} as participant`);
                 
-                // Send message history to the joining user
+                // Send message history and participants to the joining user immediately
                 socket.emit("load_messages", { messages: room.messages });
+                socket.emit("participants_update", { users: room.participants, admin: room.admin });
                 
-                // Broadcast updated participants
+                // Broadcast updated participants to all in room
                 io.to(roomId).emit("participants_update", { users: room.participants, admin: room.admin });
                 
                 // Send system message about the join (except for creator on initial creation)
