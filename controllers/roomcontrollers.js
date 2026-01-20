@@ -66,14 +66,35 @@ module.exports = (io, socket) => {
             if (action === "accept") {
                 if (!room.participants.includes(targetUsername)) room.participants.push(targetUsername);
                 await room.save();
-                const sockets = await io.in(roomId).fetchSockets();
-                const targetSocket = sockets.find(s => s.username === targetUsername);
-                if (targetSocket) targetSocket.join(roomId);
-                io.to(roomId).emit("participants_update", { users: room.participants, admin: room.admin });
+                
+                // Find target socket from all connected sockets (not just in room)
+                const allSockets = await io.fetchSockets();
+                const targetSocket = allSockets.find(s => s.username === targetUsername);
+                
+                console.log(`Admin ${socket.username} accepted ${targetUsername} to room ${roomId}`);
+                
+                if (targetSocket) {
+                    console.log(`Found target socket, joining them to room`);
+                    targetSocket.join(roomId);
+                    // Send specific approval message to the waiting user
+                    targetSocket.emit("join_approved", { roomId, users: room.participants, admin: room.admin });
+                    // Broadcast updated participants to all in room
+                    io.to(roomId).emit("participants_update", { users: room.participants, admin: room.admin });
+                } else {
+                    console.log(`Target socket for ${targetUsername} not found`);
+                }
             } else if (action === "deny") {
-                const sockets = await io.in(roomId).fetchSockets();
-                const targetSocket = sockets.find(s => s.username === targetUsername);
-                if (targetSocket) targetSocket.emit("join_denied", "Your join request was denied");
+                // Find target socket from all connected sockets
+                const allSockets = await io.fetchSockets();
+                const targetSocket = allSockets.find(s => s.username === targetUsername);
+                
+                console.log(`Admin ${socket.username} denied ${targetUsername} from room ${roomId}`);
+                
+                if (targetSocket) {
+                    targetSocket.emit("join_denied", "Your join request was denied");
+                } else {
+                    console.log(`Target socket for ${targetUsername} not found`);
+                }
             }
         } catch (err) {
             console.log(err);
