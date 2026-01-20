@@ -8,11 +8,21 @@ module.exports = (io, socket) => {
             const newRoom = await RoomModel.create({
                 roomId,
                 admin: socket.username,
-                participants: [socket.username]
+                participants: [socket.username],
+                messages: [{
+                    sender: "System",
+                    text: `${socket.username} (Admin) created the room`,
+                    timestamp: Date.now(),
+                    isSystemMessage: true
+                }]
             });
 
             socket.join(roomId);
             socket.emit("room_created", { roomId });
+            // Emit participants update so the creator sees themselves as a participant
+            io.to(roomId).emit("participants_update", { users: [socket.username], admin: socket.username });
+            // Send initial messages to the creator
+            io.to(roomId).emit("load_messages", { messages: newRoom.messages });
         } catch (err) {
             console.log(err);
             socket.emit("error_message", "Failed to create room");
@@ -36,7 +46,25 @@ module.exports = (io, socket) => {
             if (room.admin === socket.username || room.participants.includes(socket.username)) {
                 socket.join(roomId);
                 console.log(`${socket.username} joined room ${roomId} as participant`);
+                
+                // Send message history to the joining user
+                socket.emit("load_messages", { messages: room.messages });
+                
+                // Broadcast updated participants
                 io.to(roomId).emit("participants_update", { users: room.participants, admin: room.admin });
+                
+                // Send system message about the join (except for creator on initial creation)
+                if (room.participants.length > 1 || room.admin !== socket.username) {
+                    const joinMessage = {
+                        sender: "System",
+                        text: `${socket.username} joined the room`,
+                        timestamp: Date.now(),
+                        isSystemMessage: true
+                    };
+                    room.messages.push(joinMessage);
+                    await room.save();
+                    io.to(roomId).emit("new_message", joinMessage);
+                }
                 return;
             }
 
@@ -65,6 +93,15 @@ module.exports = (io, socket) => {
 
             if (action === "accept") {
                 if (!room.participants.includes(targetUsername)) room.participants.push(targetUsername);
+                
+                // Add system message for user joining
+                const joinMessage = {
+                    sender: "System",
+                    text: `${targetUsername} joined the room`,
+                    timestamp: Date.now(),
+                    isSystemMessage: true
+                };
+                room.messages.push(joinMessage);
                 await room.save();
                 
                 // Find target socket from all connected sockets (not just in room)
@@ -76,10 +113,14 @@ module.exports = (io, socket) => {
                 if (targetSocket) {
                     console.log(`Found target socket, joining them to room`);
                     targetSocket.join(roomId);
+                    // Send message history
+                    targetSocket.emit("load_messages", { messages: room.messages });
                     // Send specific approval message to the waiting user
                     targetSocket.emit("join_approved", { roomId, users: room.participants, admin: room.admin });
                     // Broadcast updated participants to all in room
                     io.to(roomId).emit("participants_update", { users: room.participants, admin: room.admin });
+                    // Broadcast join message to all
+                    io.to(roomId).emit("new_message", joinMessage);
                 } else {
                     console.log(`Target socket for ${targetUsername} not found`);
                 }
@@ -104,16 +145,60 @@ module.exports = (io, socket) => {
     // Send messages
     socket.on("send_message", async ({ roomId, text }) => {
         if (!text || !roomId) return;
-        io.to(roomId).emit("new_message", { sender: socket.username, text });
+        try {
+            const room = await RoomModel.findOne({ roomId });
+            if (!room) return;
+            
+            const message = {
+                sender: socket.username,
+                text: text,
+                timestamp: Date.now()
+            };
+            
+            room.messages.push(message);
+            await room.save();
+            
+            io.to(roomId).emit("new_message", message);
+        } catch (err) {
+            console.log("Send message error:", err);
+        }
     });
 
     // Leave room
     socket.on("leave_room", async ({ roomId }) => {
         try {
-            socket.leave(roomId);
-            io.to(roomId).emit("participants_update", { users: [], admin: null });
+            const room = await RoomModel.findOne({ roomId });
+            if (!room) return;
+            
+            // If admin is leaving, remove everyone from room and delete it
+            if (room.admin === socket.username) {
+                console.log(`Admin ${socket.username} left room ${roomId}, disposing room`);
+                // Notify all users that admin left and room is being closed
+                io.to(roomId).emit("room_disposed", { message: "Admin left the room. Room is being closed." });
+                // Delete the room from database
+                await RoomModel.deleteOne({ roomId });
+                // Remove all sockets from the room
+                const sockets = await io.in(roomId).fetchSockets();
+                sockets.forEach(s => s.leave(roomId));
+            } else {
+                // Regular participant leaving - add system message
+                room.participants = room.participants.filter(p => p !== socket.username);
+                
+                const leaveMessage = {
+                    sender: "System",
+                    text: `${socket.username} left the room`,
+                    timestamp: Date.now(),
+                    isSystemMessage: true
+                };
+                room.messages.push(leaveMessage);
+                await room.save();
+                
+                socket.leave(roomId);
+                io.to(roomId).emit("participants_update", { users: room.participants, admin: room.admin });
+                io.to(roomId).emit("new_message", leaveMessage);
+            }
         } catch (err) {
-            console.log(err);
+            console.log("Leave room error:", err);
         }
     });
 
