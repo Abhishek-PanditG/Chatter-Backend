@@ -23,6 +23,9 @@ app.use(express.urlencoded({ extended: true }));
 // Routes for login/register
 app.use("/api", UserRoutes);
 
+// Route for waking up the Server
+app.get("/health", (_, res) => res.send("OK"));
+
 // Socket.IO setup
 const io = new Server(server, {
     cors: {
