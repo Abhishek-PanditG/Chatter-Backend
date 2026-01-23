@@ -69,7 +69,8 @@ module.exports = (io, socket) => {
                     };
                     room.messages.push(joinMessage);
                     await room.save();
-                    io.to(roomId).emit("new_message", joinMessage);
+                    // Only broadcast to others, not to the user who just joined (they already have it in load_messages)
+                    socket.to(roomId).emit("new_message", joinMessage);
                 }
                 return;
             }
@@ -100,7 +101,7 @@ module.exports = (io, socket) => {
             if (action === "accept") {
                 if (!room.participants.includes(targetUsername)) room.participants.push(targetUsername);
                 
-                // Add system message for user joining
+                // Add system message for user joining (save to DB only, don't broadcast separately)
                 const joinMessage = {
                     sender: "System",
                     text: `${targetUsername} joined the room`,
@@ -119,14 +120,14 @@ module.exports = (io, socket) => {
                 if (targetSocket) {
                     console.log(`Found target socket, joining them to room`);
                     targetSocket.join(roomId);
-                    // Send message history (which now includes the join message)
+                    // Send message history (which includes the join message they just added)
                     targetSocket.emit("load_messages", { messages: room.messages });
                     // Send specific approval message to the waiting user
                     targetSocket.emit("join_approved", { roomId, users: room.participants, admin: room.admin });
                     // Broadcast updated participants to all in room
                     io.to(roomId).emit("participants_update", { users: room.participants, admin: room.admin });
-                    // Broadcast join message only to users already in the room (exclude the target socket by ID)
-                    io.to(roomId).except(targetSocket.id).emit("new_message", joinMessage);
+                    // Broadcast join message to all OTHER users (excluding the newly joined user)
+                    socket.to(roomId).emit("new_message", joinMessage);
                 } else {
                     console.log(`Target socket for ${targetUsername} not found`);
                 }
