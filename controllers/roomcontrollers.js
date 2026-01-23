@@ -59,19 +59,8 @@ module.exports = (io, socket) => {
                 // Broadcast updated participants to all in room
                 io.to(roomId).emit("participants_update", { users: room.participants, admin: room.admin });
                 
-                // Send system message about the join (except for creator on initial creation)
-                if (room.participants.length > 1 || room.admin !== socket.username) {
-                    const joinMessage = {
-                        sender: "System",
-                        text: `${socket.username} joined the room`,
-                        timestamp: Date.now(),
-                        isSystemMessage: true
-                    };
-                    room.messages.push(joinMessage);
-                    await room.save();
-                    // Only broadcast to others, not to the user who just joined (they already have it in load_messages)
-                    socket.to(roomId).emit("new_message", joinMessage);
-                }
+                // Don't add join message here - it's already been added during approval
+                // Only send newly added messages that were created after the user was approved
                 return;
             }
 
