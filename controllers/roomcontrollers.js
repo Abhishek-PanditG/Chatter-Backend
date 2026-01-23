@@ -4,7 +4,7 @@ module.exports = (io, socket) => {
     // Create a new room
     socket.on("create_room", async () => {
         try {
-            const roomId = Math.random().toString(36).substring(2, 10);
+            const roomId = Math.random().toString(36).substring(2, 10).toUpperCase().replace(/[^A-Z0-9]/g, '');
             const newRoom = await RoomModel.create({
                 roomId,
                 admin: socket.username,
