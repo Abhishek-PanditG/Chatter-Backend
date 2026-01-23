@@ -125,8 +125,8 @@ module.exports = (io, socket) => {
                     targetSocket.emit("join_approved", { roomId, users: room.participants, admin: room.admin });
                     // Broadcast updated participants to all in room
                     io.to(roomId).emit("participants_update", { users: room.participants, admin: room.admin });
-                    // Broadcast join message only to users already in the room (excluding the new user who got it via load_messages)
-                    socket.to(roomId).emit("new_message", joinMessage);
+                    // Broadcast join message only to users already in the room (exclude the target socket by ID)
+                    io.to(roomId).except(targetSocket.id).emit("new_message", joinMessage);
                 } else {
                     console.log(`Target socket for ${targetUsername} not found`);
                 }
