@@ -119,14 +119,14 @@ module.exports = (io, socket) => {
                 if (targetSocket) {
                     console.log(`Found target socket, joining them to room`);
                     targetSocket.join(roomId);
-                    // Send message history
+                    // Send message history (which now includes the join message)
                     targetSocket.emit("load_messages", { messages: room.messages });
                     // Send specific approval message to the waiting user
                     targetSocket.emit("join_approved", { roomId, users: room.participants, admin: room.admin });
                     // Broadcast updated participants to all in room
                     io.to(roomId).emit("participants_update", { users: room.participants, admin: room.admin });
-                    // Broadcast join message to all
-                    io.to(roomId).emit("new_message", joinMessage);
+                    // Broadcast join message only to users already in the room (excluding the new user who got it via load_messages)
+                    socket.to(roomId).emit("new_message", joinMessage);
                 } else {
                     console.log(`Target socket for ${targetUsername} not found`);
                 }
